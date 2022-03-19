@@ -1,0 +1,67 @@
+syntax = "proto3";
+package conversion;
+
+option go_package = "/conversion";
+
+/**
+Prepare .proto file with grpc service & message type definitions (no implementation
+required). Describe service methods to perform conversion, batch conversion, listing of rates
+with pagination.
+**/
+
+
+message ConversionRequest {
+    repeated string sources = 1;
+    repeated string targets = 2;
+
+    double value = 3; // The value to be converted, proto3 doesn't support defauly values; client may be forced to provide one.
+}
+
+// This is a general result structure, that can be used for single or many conversions. 
+message ConversionResult {
+    message ConversionData {
+        // source currency
+        string src_currency = 1;
+        
+        // A map of target currency and the conversion value
+        message DataMap {
+            string tgt_currency = 1;
+            double rate = 2;
+        }
+
+        // supports many mapped rates in case we want for single to single, single to many or many to many conversions
+        repeated DataMap rate = 2;
+    }
+
+    repeated ConversionData data = 2;
+}
+
+message BatchConversionRequest {
+    ConversionRequest conversion = 1;
+    int32 batch_size = 2;
+}
+
+
+
+message RatesRequest {
+    ConversionRequest conversion = 1;
+    int32 limit = 2;
+    int32 page = 3;
+   
+}
+
+// This represents result data that will hold the paginated list of rates 
+message RatesResult {
+    ConversionResult result = 1;
+    int32 curr_page = 2;
+    bool has_next = 3; 
+}
+
+service ConversionService {
+    // convert currencies
+    rpc Convert(ConversionRequest) returns (ConversionResult){}
+    // perform batch conversion, client sends a (stream) sequence of batched conversion requests
+    rpc ConvertBatch(stream BatchConversionRequest) returns (ConversionResult){}
+    // get list of rates, the ones already persisted on db/storage
+    rpc Rates(RatesRequest) returns (RatesResult){}
+}

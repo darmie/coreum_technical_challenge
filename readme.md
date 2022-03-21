@@ -123,7 +123,8 @@ type Provider interface {
 ```
 
 
-
+## Testing
+Run the following in terminal `go install ./conversion && go test ./conversion`
 
 
 

@@ -1,6 +1,7 @@
 package conversion
 
 import (
+	"fmt"
 	"net/http"
 	sync "sync"
 	"time"
@@ -31,16 +32,10 @@ var (
 	}
 
 	currencyPairs = []*Pair{
-		{btc, eth},
-		{eth, btc},
-		{btc, astro},
-		{eth, astro},
 		{astro, eth},
 		{astro, btc},
 		{astronaut, eth},
 		{astronaut, btc},
-		{btc, astronaut},
-		{eth, astronaut},
 	}
 )
 
@@ -50,13 +45,11 @@ type ProviderImpl struct {
 }
 
 func NewProviderImpl() *ProviderImpl {
-	return &ProviderImpl{store: new(MemoryGraph)}
+	return &ProviderImpl{store: new(MemoryGraph), proc: sync.WaitGroup{}}
 }
 
 // Convert currency pair
 func (prov ProviderImpl) Convert(c1, c2 Currency) (*Rate, error) {
-	// Queue this conversion process to the wait group
-	prov.proc.Add(1)
 
 	httpClient := &http.Client{
 		Timeout: time.Second * 10,
@@ -64,6 +57,7 @@ func (prov ProviderImpl) Convert(c1, c2 Currency) (*Rate, error) {
 	CG := coingecko.NewClient(httpClient)
 	res, err := CG.SimplePrice([]string{c1.uid.(string)}, []string{c2.uid.(string)})
 	if err != nil {
+		fmt.Println(err)
 		return nil, err
 	}
 
@@ -85,8 +79,6 @@ func (prov ProviderImpl) Convert(c1, c2 Currency) (*Rate, error) {
 		}
 	}
 
-	// Release this process from queue
-	prov.proc.Done()
 	return ret, nil
 }
 
@@ -97,9 +89,21 @@ func (prov ProviderImpl) NextTick() int {
 
 func (prov ProviderImpl) setPairs() map[Currency][]*Rate {
 	mem := prov.store
+
 	for _, pair := range currencyPairs {
-		// Run this process concurrently, calls prov.Convert() internally
-		go mem.SetPair(prov, pair)
+		// Queue this conversion process to the wait group
+		prov.proc.Add(1)
+		// Run this process concurrently
+		go func(pair *Pair) {
+
+			defer prov.proc.Done() // Release this process from queue
+
+			_, err := mem.SetPair(&prov, pair) // calls prov.Convert() internally
+			if err != nil {
+				prov.proc.Done()
+			}
+
+		}(pair)
 	}
 
 	// wait for concurrently running processes to finish
@@ -108,12 +112,14 @@ func (prov ProviderImpl) setPairs() map[Currency][]*Rate {
 }
 
 func (prov ProviderImpl) LiveRates(page *int, limit *int) []*Rate {
+	_page := 1
+	_limit := 10
 	if page != nil {
-		*page = 1
+		_page = *page
 	}
 
 	if limit != nil {
-		*limit = 10
+		_limit = *limit
 	}
 
 	rates := prov.setPairs()
@@ -125,12 +131,13 @@ func (prov ProviderImpl) LiveRates(page *int, limit *int) []*Rate {
 	}
 
 	size := len(flat_rates)
-	offset := *page - 1
-	length := *limit
+	offset := _page - 1
+	length := _limit
 
 	// adjust the length for the last page
 	if size < (length + offset) {
 		length = size - offset
+		fmt.Println(length)
 	}
 
 	return flat_rates[offset:length]
@@ -138,5 +145,6 @@ func (prov ProviderImpl) LiveRates(page *int, limit *int) []*Rate {
 
 func (prov ProviderImpl) GetRates(c Currency) []*Rate {
 	rates := prov.setPairs()
+	fmt.Println(rates)
 	return rates[c]
 }
